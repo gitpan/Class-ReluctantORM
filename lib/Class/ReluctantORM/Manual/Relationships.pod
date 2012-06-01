@@ -1,0 +1,275 @@
+=head1 NAME
+
+Class::ReluctantORM::Manual::Relationships - Linking Tables in CRO
+
+=head1 OVERVIEW
+
+Class::ReluctantORM supports several types of relationships between model classes.  These relationships directly reflect a relationship between tables, that is usually mirrored by foreign key relationships in the database.  This notion is certainly not new to ORMs, and CRO has a fairly vanilla implementation.
+
+CRO supports a basic set of relationship types - has-one, has-many, has-many-many, and has-lazy.  More types may be developed in the future.  CRO supports single or multi-column foreign keys.
+
+Relationships are set up by calling class methods on one of the model classes that is participating in the relationship.
+
+CRO's relationships are themselves objects, and each can describe details of its operation through the use of informational methods.
+
+Finally, we examine some advanced features of relationships, such as multiple relationships between pairs of classes and inverse relationships.
+
+The examples used in this file come from the schema that is used in the CRO test suite.
+
+=head1 TYPES OF RELATIONSHIPS
+
+CRO currently supports 4 types of relationships.  The first three should be familiar to anyone who has worked with relational databases, while the fourth is a special relationship used to implement delayed column loading.
+
+=head2 Has-One
+
+  pirates.ship_id => FK to => ships.ship_id
+
+In this relationship, each row in pirates contains a reference to a row in ships.  Likewise, each Pirate object has a reference to a Ship.
+
+This relationship may also be used as a 'might have' relationship.  CRO does not care if the reference is undef or not; however, to support might-have, your database tables must be configured to allow NULLs in a foreign key column (not all RDBMSs support this).
+
+Has-One relationships may also be self-referential:
+
+  pirates.captain_id => FK to => pirates.pirate_id
+
+This results in the Pirate objects each having a reference to a Pirate object (we'll show how to set up the method name later).
+
+See L<Class::ReluctantORM::Relationship::HasOne> for more details.
+
+=head2 Has-Many
+
+Using the database contraint as above:
+
+  pirates.ship_id => FK to => ships.ship_id
+
+We can also consider this from the Ship's perspective.  For each row in ships, there will be 0 or more rows in pirates that match.  Likewise, each Ship object will have a collection of 0 or more Pirates.
+
+See L<Class::ReluctantORM::Relationship::HasMany> for more details.
+
+=head2 Has-Many-Many
+
+Consider:
+
+  booties2pirates.pirate_id => FK to => pirates.pirate_id
+  booties2pirates.booty_id  => FK to => booties.booty_id
+
+This relationship spans 3 tables.  For each row in pirates, there will be 0 or more matching rows in booties2pirates, each of which matches one row in booties.  In the model, each Pirate will have a collection of Booties, and each Booty will have a collection of Pirates.  CRO hides the details of the join table from you. 
+
+It is similar to two back-to-back Has-Many relationships, but has some key differences.  CRO provides no opportunity to attach auxiliary columns to the join table (for example, booties2pirates.share_precentage).  If you need that functionality, the current suggestion is to boost the join table to a first-class model class, and create two has-many relationships.
+
+See L<Class::ReluctantORM::Relationship::HasManyMany> for more details.
+
+=head2 Has-Lazy
+
+  pirates.diary ::blob
+
+This "relationship" only involves one table.  It marks a column as being configured for delayed loading.  We'll cover this in more detail in L<Class::ReluctantORM::Manual::Prefetching>.  See also  L<Class::ReluctantORM::Relationship::HasLazy>.
+
+=head1 SETTING UP RELATIONSHIPS 
+
+Each relationship type creates a new class method in Class::ReluctantORM.  This allows you to call the setup methods withing your model file (or your individual model class .pm files).
+
+=head2 Local vs Remote
+
+When setting up relationships, the term 'local' refers to the class/table you're connecting FROM, and the term 'remote' refers to the class/table you are relating TO.
+
+=head2 The Basics
+
+  package Pirate;
+  Pirate->build_class(...);
+  Pirate->has_one('Ship');
+
+Here Pirate is the local table, and we're setting up a Has-One relationship to the remote class Ship.  Has-One's setup method is named 'has_one'.  Calling the setup method with one arg - the name of the remote class - will accept all defaults.
+
+Relationships are uni-directional.  In other words, just because you set up Pirate->has_one(Ship), it does not imply that Ship->has_many(Pirate) will be setup for you.  You may choose to set it up if you wish,  but it is not required.  See also the Inverse Relationships section, later in this document.
+
+=head2 What You Get
+
+First, you get several new methods:
+
+  my $pirate1 = Pirate->fetch(23); # pirate ID 23
+  $pirate1->fetch_ship();          # See L<Class::ReluctantORM::Manual::Prefetching>
+  my $ship1   = $pirate1->ship();
+
+  my $pirate2 = Pirate->fetch_with_ship(23);
+  my $ship2   = $pirate2->ship();
+
+  my $pirate3 = Pirate->fetch_by_name_with_ship('Black Beard');
+  my $ship3   = $pirate3->ship();
+
+You can also now use 'ship' in fetch_deep invocations:
+
+  my $pirate4 = Pirate->fetch_deep(
+                                   name => 'Black Beard',
+                                   with => { ship => {}},
+                                  );
+
+=head2 Changing Options
+
+To pass options, pass a hash instead of a single arg.
+
+  Pirate->has_one(
+                  class => 'Pirate',
+                  local_key => 'captain_id',
+                  method_name => 'captain',
+                 );
+
+This sets up a self-referential relationship on Pirates.
+
+The various relationship types support different options to their setup methods.  Consult the docs for each type to get the details.
+
+=over
+
+=item class
+
+The name of the remote class.  Required for all except HasLazy.
+
+=item method_name
+
+The name of the method to generate - also, the name of the relationship.  Defaults to a lowercased version of the remote class, with CamelCase converted to under_score_case.  HasMany and HasManyMany will also pluralize it.
+
+=item local_key
+
+String or arrayref of strings (for multi-column keys).  The column names in the local table of the foreign key.  For HasOne, defaults to the primary key column(s) of the remote table.  For HasMany and HasManyMany, defaults to the primary key column(s) of the local table.  (This is usually what you want).
+
+=item remote_key
+
+String or arrayref of strings (for multi-column keys).  The column names in the remote table of the foreign key.  For HasOne, HasMany and HasManyMany, defaults to the primary key column(s) of the remote table.  (This is usually what you want).
+
+String or arrayref of strings (for multi-column keys).  The column names in the remote table of the foreign key.
+
+=item join_table
+
+Table name of the join table.  Required for HasManyMany.
+
+=item join_schema
+
+Schema name of the join table.  Only permitted for HasManyMany; defaults to the schema of the local table.
+
+=item join_local_key
+
+String or arrayref of strings (for multi-column keys).  The column names in the join table of the foreign key that points to the local table.  Only permitted for HasManyMany.  Defaults to the primary key column(s) of the local table.  (This is usually what you want).
+
+=item join_remote_key
+
+String or arrayref of strings (for multi-column keys).  The column names in the join table of the foreign key that points to the remote table.  Only permitted for HasManyMany.  Defaults to the primary key column(s) of the remote table.  (This is usually what you want).
+
+=back
+
+=head1 USING RELATIONSHIPS
+
+We've already seen how to use a HasOne relationship:
+
+  my $pirate1 = Pirate->fetch(23); # pirate ID 23
+  $pirate1->fetch_ship();          # See L<Class::ReluctantORM::Manual::Prefetching>
+  my $ship1   = $pirate1->ship();
+
+=head2 Collections
+
+Using HasMany and HasManyMany relationships is slightly different, because they manage collections of objects.
+
+  my $ship = Ship->fetch(2);
+  $ship->fetch_pirates();
+
+  # This is a Class::ReluctantORM::Collection::Many in scalar context
+  $crew = $ship->pirates();
+  print "I have " . $crew->count() . " aboard\n";
+  if ($crew->is_present(Pirate->fetch_by_name('Black Beard'))) { ... }
+
+  # In list context, you get a list
+  foreach my $matey ($ship->pirates()) {
+     $matey->sing_chanty();
+  }
+
+See L<Class::ReluctantORM::Collection> for more details on collections, including the ability to add and remove members in memory and in the database.
+
+=head2 HasLazy
+
+HasLazy is a bit different, in that it its fetcher will never return a CRO model object OR a Collection - rather, it will always return the (possibly large) plain scalar value that was fetched from the database in that column.
+
+  my $pirate1 = Pirate->fetch(23); # pirate ID 23
+  $pirate1->fetch_diary();         # See L<Class::ReluctantORM::Manual::Prefetching>
+  print "Musings:\n" . $pirate1->diary();
+  
+
+=head1 EXAMINING RELATIONSHIPS
+
+Each relationship between classes has a great deal of metadata available - all of the information provided (or defaulted) to the relationship setup method is available for later retrieval.
+
+Keep in mind that relationships are OBJECTS link together CLASSES.
+
+You can get a list of all relationships that a class participates in:
+
+  foreach my $rel (Pirate->relationships()) {
+     print "Have rel " . $rel->name . ":\n";
+     print "\tFrom:\t" . $rel->linking_class . ":\n";
+     print "\tTo:\t"   . $rel->linked_class . ":\n";
+     print "\tType:\t" . $rel->type . ":\n";
+  }
+
+You can also test to see whether a given method is a relationship or not:
+
+  if (Pirate->relationships('parrot')) { ... }
+
+You can also find out how many JOINs are needed to transverse the relationship, the columns and tables involved (as L<Table|Class::ReluctantORM::SQL::Table>  and L<Table|Class::ReluctantORM::SQL::Column> objects) and more.  See L<Class::ReluctantORM::Relationship> for details.
+
+=head1 ADVANCED RELATIONSHIP Features
+
+=head2 Multiple Relationships Between Classes
+
+You can have multiple relationships between the same pair of classes, so long as their method names are unique.
+
+=head2 Inverse Relationships
+
+Some relationships are able to participate in inverse relatioinships.  When you create a relationship and create its bidirectional counterpart, both relationships are aware of the inverse relationship.  Under most circumstances, the relationships are able to discover each other automatically.
+
+  Pirate->has_one(Ship);
+  Ship->has_many(Pirate);
+
+  my $p2s = Pirate->relationships('ship');
+  my $s2p = Ship->relationships(''pirates');
+
+  # Same thing:
+  my $s2p = $p2s->inverse_relationship();
+  my $p2s = $s2p->inverse_relationship();
+
+  Ship->has_one(Class => Pirate, method_name => 'captain');
+
+=over
+
+=item A HasOne relationship may have a HasMany inverse
+
+=item A HasMany relationship may have a HasOne inverse
+
+=item A HasManyMany relationship may have a HasManyMany inverse
+
+=back
+
+=head2 Multiple Inverse Relationships
+
+If two classes have multiple relationships, the inverse relationships will be determined
+by looking at the keys.
+
+  Pirate->has_one(
+                  class => Ship,
+                  method_name => 'current_ship',
+                  local_key => 'current_ship_id',
+                 );
+  Pirate->has_one(
+                  class => Ship,
+                  method_name => 'previous_ship',
+                  local_key => 'previous_ship_id',
+                 );
+  Ship->has_many(
+                 class => Pirate,
+                 remote_key => 'current_ship_id',
+                );
+
+
+=head1 AUTHOR
+
+Clinton Wolfe clwolfe@cpan.org March 2010
+
+=cut
+
+1;

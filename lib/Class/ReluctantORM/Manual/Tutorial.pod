@@ -1,0 +1,419 @@
+# -*- pod -*-
+
+=head1 NAME
+
+Class::ReluctantORM::Manual::Tutorial - The Class::ReluctantORM Tutorial
+
+=head1 GETTING STARTED
+
+=head2 Create Your Database
+
+Class::ReluctantORM doesn't try to make your database for you.  This allows CRO to hook 
+up to existing databases easily.
+
+Here's our example database, in PostgreSQL dialect:
+
+  DROP SCHEMA IF EXISTS caribbean CASCADE;
+  CREATE SCHEMA caribbean;
+  SET search_path = caribbean;
+
+  CREATE TABLE ranks (
+      rank_id serial PRIMARY KEY,
+      name text NOT NULL
+  );
+
+  -- Data for static ranks table
+  INSERT INTO ranks (name) VALUES ('Able Seaman');
+  INSERT INTO ranks (name) VALUES ('Cabin Boy');
+  INSERT INTO ranks (name) VALUES ('Captain');
+
+  -- Name: ships; Type: TABLE; Schema: caribbean; Owner: $username; Tablespace: 
+  CREATE TABLE ships (
+      ship_id serial PRIMARY KEY,
+      "name" text NOT NULL,
+      waterline integer NOT NULL,
+      gun_count integer NOT NULL
+  );
+
+  -- Name: booties; Type: TABLE; Schema: caribbean; Owner: $username; Tablespace: 
+  CREATE TABLE booties (
+    booty_id serial PRIMARY KEY, 
+    cash_value integer NOT NULL, 
+    "location" text
+  );
+
+  -- Name: pirates; Type: TABLE; Schema: caribbean; Owner: $username; Tablespace: 
+  CREATE TABLE pirates (
+      pirate_id serial PRIMARY_KEY,
+      name text NOT NULL,
+      leg_count integer DEFAULT 2 NOT NULL,
+      rank_id integer DEFAULT 1 NOT NULL REFERENCES ranks (rank_id),
+      captain_id integer REFERENCES pirates (pirate_id),
+      ship_id integer REFERENCES ships (ship_id)
+  );
+
+  -- Name: booties2pirates; Type: TABLE; Schema: caribbean; Owner: $username; Tablespace: 
+  CREATE TABLE booties2pirates (
+      booty_id integer NOT NULL REFERENCES booties (booty_id),
+      pirate_id integer NOT NULL REFERENCES pirates (pirate_id), 
+      PRIMARY KEY (booty_id, pirate_id)
+  );
+
+Create this database and make a user that can access it.
+
+=head1 YOUR FIRST TABLEBACKED CLASS
+
+=head2 Defining the Class
+
+Make a file named HighSeas/Ship.pm :
+
+  package HighSeas::Ship;
+  use base 'Class::ReluctantORM';
+  __PACKAGE__->build_class(
+                           dbh         => $dbh,   # Your DBI database handle
+                           schema      => 'caribbean',
+                           table       => 'ships',
+                           primary_key => 'ship_id',
+                          );
+  1;
+
+For further details about this class method call, see L<build_class|Class::ReluctantORM/build_class>.
+
+That's your first CRO class.  Let's make a test script to take it for a spin:
+
+ #!/usr/bin/perl
+ use strict;
+ use warnings;
+ use HighSeas::Ship;
+
+ my $ship = HighSeas::Ship->create(gun_count => 22, name => 'The Golden Hind');
+ print "I have a ship named " . $ship->name . " with ID " . $ship->ship_id . ".\n";
+
+
+You should see output like this:
+
+ I have a ship named The Golden Hind with ID 1. 
+
+(your ID number may vary).  This created a Ship object in Perl, and a row in the ships table in the database.
+
+=head2 New, Create, Fetch, and Search
+
+You can also do:
+
+ my $ship = HighSeas::Ship->new(gun_count => 22, name => 'The Golden Hind');
+
+new() will create an object in Perl, but will not touch the database.  You can save it later using save().
+
+What about getting an existing record?
+
+ my $ship = HighSeas::Ship->fetch(1);
+
+fetch() finds an existing row (by its primary key(s)) and constructs a Ship object.
+
+You can also do this:
+
+ my $ship = HighSeas::Ship->fetch_by_name('The Golden Hind');
+
+In fact, for each field of your class, there will be a fetch_by_FIELD() constructor automatically created.
+
+search() is just like fetch(), except that it doesn't throw an exception if nothing was found.  So it's always safe to say:
+
+  $ship = HighSeas::Ship->search(1);
+  $ship = HighSeas::Ship->search_by_name('The Golden Hind');
+  @ships = HighSeas::Ship->search(where => 'waterline > ?', execargs => [ 24 ]);
+
+Unlike fetch(), search may return undef or an empty list.
+
+=head2 Accessors and Mutators
+
+Did you notice that we were able to call $ship->name(), but we didn't explicitly
+create a method with that name?  Class::ReluctantORM automatically creates accessor/mutator
+(getter/setter) methods for each field.
+
+  print "Ship ID:"   . $ship->ship_id()   . "\n";
+  print "Name:"      . $ship->name()      . "\n";
+  print "Guns:"      . $ship->gun_count() . "\n";
+  print "Waterline:" . $ship->waterline() . "\n";
+
+  # Trouble brewing, better add more guns!
+  $ship->gun_count(50);
+
+  # Prints 50
+  print "New Guns:" . $ship->gun_count() . "\n";
+
+You can make a field read-only by passing the ro_fields option to L<build_class|Class::ReluctantORM/build_class>.
+
+=head2 Dirtiness
+
+Each Class::ReluctantORM object tracks whether it has been modified since it 
+left the database.  This is known as dirtiness.
+
+   my $ship = HighSeas::Ship->fetch(1);
+   $bool = $ship->is_dirty(); # false
+   $ship->gun_count(32);
+   $bool = $ship->is_dirty(); # true
+   @fields = $ship->dirty_fields(); # ('gun_count');
+
+You can clear the dirty flag by saving the object.
+
+=head2 Update, Insert and Save
+
+Update performs a SQL UPDATE - so it stores the values in the object into the database.  You can only do an update on an object that was fetched (or create()d) from the database.
+
+   $ship->update();
+   $bool = $ship->is_dirty(); # false
+
+Likewise, insert() performs a SQL INSERT.  You can only do an insert on an object that was created with new().
+
+   $ship = HighSeas::Ship->new(gun_count => 22, name => 'The Golden Hind');
+   $ship->insert();
+
+Save is like a smarter update/insert - depending on whether the object has been saved at 
+all, it will either perform an insert() or an update().
+
+   $ship->save();
+
+=head2 Delete
+
+You can delete an object from the database:
+
+   my $ship = HighSeas::Ship->fetch(1);
+   $ship->delete();
+
+There is also a delete_all class method:
+
+   Ship->delete_all();
+
+We'll cover delete_where, which lets you give a SQL WHERE clause, later on.
+
+=head2 Adding Methods to Your Class
+
+There's nothing to prevent you from adding custom methods to your class.
+
+In HighSeas/Ship.pm, add:
+
+  sub fire_at {
+     my $self = shift;
+     my $opponent = shift;
+     if (rand() > 0.5) {
+        $opponent->got_hit();
+     } else {
+        $opponent->near_miss();
+     }
+  }
+  sub got_hit { print "Ouch!\n"; }
+  sub near_miss { print "Nyah-Nyah!\n"; }
+
+Now you can do:
+
+   my $frigate = HighSeas::Ship->fetch(1);  
+   my $sloop = HighSeas::Ship->fetch(2);
+   $frigate->fire_at($sloop);
+
+   # Ouch!
+
+=head1 CREATING A FULL MODEL
+
+If you have a lot of custom functionality in your classes, it makes sense to keep them in separate .pm files.  But if they are all short, dumb classes, it's a lot easier to put them in one file.  Let's make HighSeas/Model.pm :
+
+  package HighSeas::Model;
+  use strict;
+  use warnings;
+
+  my $dbh = ... # Up to you
+
+  our %TABLE_DEFAULTS = (
+                         schema => 'caribbean',
+                         dbh => $dbh,
+                         deletable => 1,
+                        );
+
+  package HighSeas::Ship;
+  use base 'Class::ReluctantORM';
+  __PACKAGE__->build_class(
+                           %HighSeas::Model::TABLE_DEFAULTS,
+                           table => 'ships',
+                           primary_key => 'ship_id',
+                          );
+
+  package HighSeas::Pirate;
+  use base 'Class::ReluctantORM';
+  __PACKAGE__->build_class(
+                           %HighSeas::Model::TABLE_DEFAULTS,
+                           table => 'pirates',
+                           primary_key => 'pirate_id',
+                          );
+
+  package HighSeas::Booty;
+  use base 'Class::ReluctantORM';
+  __PACKAGE__->build_class(
+                           %HighSeas::Model::TABLE_DEFAULTS,
+                           table => 'booties',
+                           primary_key => 'booty_id',
+                           fields => {
+                                      booty_id   => 'booty_id',
+                                      cash_value => 'cash_value',
+                                      place      => 'location',
+                                     },
+                          );
+
+  package HighSeas::Rank;
+  use base 'Class::ReluctantORM::Static';
+  __PACKAGE__->build_class(
+                           %HighSeas::Model::TABLE_DEFAULTS,
+                           table => 'ranks',
+                           primary_key => 'rank_id',
+                           deletable => 0,
+                           index => ['name'],
+                          );
+
+
+There's a number of things going on here:
+
+=over
+
+=item *
+Since all the classes are defined in one file, we can load the entire model by just saying 'use HighSeas::Model', instead of listing every class we need.
+
+=item *
+We're setting most defaults in a hash, %TABLE_DEFAULTS.
+
+=item *
+The 'deletable' option is being used.
+
+=item *
+The Booty class has a funny 'fields' option.
+
+=item *
+The Rank class inherits from Class::ReluctantORM::Static, instead of plain Class::ReluctantORM.
+
+=back
+
+=head2 The deletable and updatable options
+
+You can disable or enable delete() and update() by using these options.
+
+=head2 The 'fields' option
+
+You can use the 'fields' option to control how column names are mapped to method names.  For example, 
+the booties table has a 'location' column, but we're renaming it to be 'place'.
+Now there will be a $booty->place() method, but no $booty->location() method.
+
+Class::ReluctantORM keeps separate lists of column names and field names (methods), though they are usually the same.
+You can use this feature to overcome awkward naming conventions at the DB level.
+
+Note that if you use the fields option, Class::ReluctantORM will no longer fetch the list 
+of columns from the database.  Instead, you'll have to explicitly list all fields and
+columns, even if they aren't being renamed.
+
+=head2 Static Tables
+
+Some tables are "static" - their contents will not change over time.  
+These tables are sometimes called enumeration tables or type tables, and are 
+often used for things like status values.
+
+Class::ReluctantORM provides special caching and in-memory indexing support for these tables.
+See L<Static|Class::ReluctantORM::Static> for more details.
+
+=head1 ADDING RELATIONSHIPS
+
+Of course, dealing with isolated classes isn't very interesting - it's the interactions 
+between objects that draws most of our attention.  Class::ReluctantORM supports relationships between tables.  At the database level, these are usually foreign key relationships; at the OOP level, these are composition relationships.
+
+Relationships are covered in detail in the L<Relationships|Class::ReluctantORM::Manual::Relationships> section of the manual.
+
+=head2 Has-One Relationships
+
+For example, a pirate has a ship.  Add this to the HighSeas/Model.pm file:
+
+  HighSeas::Pirate->has_one('HighSeas::Ship');
+
+Now you can say:
+
+  my $ship = HighSeas::Ship->create(...);
+  my $pirate = HighSeas::Pirate->create(ship => $ship, ...);
+  my $s2 = $pirate->ship(); # You get $ship
+
+  # Transfer pirate to a new ship
+  my $s3 =  HighSeas::Ship->create(...);
+  $pirate->ship($s3);
+  $pirate->save();
+
+You can pass options to has_one to alter the behavior of the relationship.  You can learn more about Has One relationships at L<HasOne|Class::ReluctantORM::Relationship::HasOne>.
+
+Here's an example of a self-referential has_one relationship:
+
+  HighSeas::Pirate->has_one(class => 'HighSeas::Pirate', method_name => 'superior');
+
+=head2 Has-Many Relationships
+
+Of course, a Ship has many pirates.  Add this to the HighSeas/Model.pm file:
+
+  HighSeas::Ship->has_many('HighSeas::Pirate');
+
+Has-Many relationships work differently than has-one relationships, because you get back 
+an object that represents the collection.  You then perform fetches on the collection.
+
+  my $collection = $ship->pirates();
+  foreach my $p ($collection->fetch_all()) {
+     ...
+  }
+
+You can pass options to has_many to alter the behavior of the relationship.  You can learn more about Has Many relationships at L<HasMany|Class::ReluctantORM::Relationship::HasMany>.
+
+=head2 Many-to-Many Relationships
+
+Those pirates have been busy and have captured quite a bit of booty.  Each pirate has a share in each capture.  So, each booty has many pirates, and each pirate has many booties.  Add this to the HighSeas/Model.pm file:
+
+  HighSeas::Pirate->has_many_many(
+                                  class => 'HighSeas::Booty',
+                                  join_table => 'booties2pirates',
+                                 );
+  HighSeas::Booty->has_many_many(
+                                 class => 'HighSeas::Pirate',
+                                 join_table => 'booties2pirates',
+                                );
+
+Notice that you must provide a join table argument.  
+Has-Many-Many relationships work a lot like has-many relationships, but they act on rows in the join table.  Like has-many, you get back a collection object.
+
+  my $collection = $pirate->booties();
+  foreach my $b ($collection->fetch_all()) {
+     ...
+  }
+
+You can pass options to has_many_many to alter the behavior of the relationship.  You can learn more about Has-Many-Many relationships at L<HasManyMany|Class::ReluctantORM::Relationship::HasManyMany>.
+
+=head1 RELUCTANT FETCHING and FETCH_DEEP
+
+As you followed along, you may have encountered an error if you tried something like this:
+
+  my $pirate = HighSeas::Pirate->fetch(1);
+  $s = $pirate->ship();
+  $p = $pirate->superior->superior->superior->superior();
+  foreach my $p ($ship->pirates->fetch_all) {
+     print $p->superior->name;
+  }
+
+In most ORMs, the second line would have resulted in one more database query.  The third line would result in not one, but 4 additional queries.  And the foreach would do one query to get the list of pirates, then one query for each pirate.  Clearly, that won't scale well.
+
+Class::ReluctantORM helps you be a better consumer of database services by doing reluctant fetching.  That means that CRO will not perform "hidden" database queries.  Instead, the above lines of code would result in 'FetchRequired' exceptions being thrown.  You can explicitly fetch related data in one of several ways:
+
+  # I know I really do want the ship....
+  $s = $pirate->fetch_ship();
+  $s = $pirate->ship();  # works, returns cached value from fetch_ship
+
+  # I know in advance that whenever I want a ship, I want its pirates, too
+  $s = HighSeas::Ship->fetch_with_pirates(1);  # 1 is ship_id 
+  @p = $s->pirates->all();  # works, already populated
+
+  # Or the more advanced form:
+  @s = HighSeas::Ship->search_deep(where => 'gun_count > 10', with => {pirates => {}});
+
+You can learn more about prefetching in the L<Prefetching Section|Class::ReluctantORM::Manual::Prefetching>.
+
+=head1 AUTHOR
+
+Clinton Wolfe
+
+=cut

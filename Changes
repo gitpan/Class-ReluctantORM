@@ -1,0 +1,14 @@
+
+0.52    2012-06-01
+   First public release to CPAN
+   * Added support for schema caching, in an unappealling way.
+   * Fixed several inefficiencies in the method generators, reduced startup time
+   * Fixed memory leak in SQL abstraction layer in From clause tree
+
+0.5     2009-2012  In use in production at OmniTI.  Various enhancements and bugfixes; fetch_deep_overlay probably the most significant.
+0.4     2009     Transition to CRO; adds SQL abstraction layer, monitoring system, and class-based relationships.  Presented at YAPC NA in Pittsburgh.  
+0.3     2009     OmniTI:::TableBacked Era
+0.2     2008     Primordial Soup
+0.01    2008     Theo Schlossnagle and Clinton Wolfe argue about under what circumstances an ORM could ever be used for development of scalable systems.  "Mandatory prefetching" proposed as an approach.
+
+

@@ -1,0 +1,76 @@
+Class-ReluctantORM-0.5
+
+"An ORM your DBA can live with, sort of"
+
+This is an ORM that discourages making hidden database calls by forcing
+the developer to pre-fetch as much as possible.  That may be a net win or a net loss 
+in your situation.  Instead of having lots of tiny round-trips, you'll now tend to 
+have a few high-join-count queries.
+
+See the movie, read the book, download the white paper: http://omniti.com/seeds/orms-done-right
+
+CRO has full support for has-one, has-many, and has-many-many relationships.  It has 
+an excellent event-based system to observe the translation of API calls into SQL, 
+which can be used to monitor for ORM abuse.
+
+It is immature in some areas.  It has some memory leak issues.  It has strong 
+PostgreSQL support, but weak support for all others; the driver system is
+extensible, should anyone feel inspired.
+
+TESTING
+
+During installation, CRO would like to use a real database to test with.  'make test' 
+will interactively prompt you for info, or you can set envirnment variables:
+
+ CRO_DB_MODE - (s) skip all, (d) from DBI DSN, (g) generate a local database
+   If you choose s, you're done.
+   If you choose d, also set CRO_DB_DSN, CRO_DB_USERNAME, CRO_DB_PASSWORD.  DSN format is that used by DBI.
+   If you choose g, also set CRO_DB_RDBMS to one of: 
+     p for PostgreSQL (must have local server installed, but need not be running)
+     s for sqlite
+
+This information is cached across multiple test runs in t/test.dsn .  If you generated a database, you'll 
+also need to delete t/test-db-initted.flag if you want it to regenerate.
+
+If you want to keep the database running after testing,
+      Set CRO_DB_KEEP_RUNNING=1
+otherwise t/Z99-shutdown.t will shutdown the test database cluster.
+
+
+INSTALLATION
+
+To install this module, run the following commands:
+
+	perl Makefile.PL
+	make
+	make test
+	make install
+
+SUPPORT AND DOCUMENTATION
+
+After installing, you can find documentation for this module with the
+perldoc command.
+
+    perldoc Class::ReluctantORM
+
+You can also look for information at:
+
+    RT, CPAN's request tracker
+        http://rt.cpan.org/NoAuth/Bugs.html?Dist=Class-ReluctantORM-0.5
+
+    AnnoCPAN, Annotated CPAN documentation
+        http://annocpan.org/dist/Class-ReluctantORM-0.5
+
+    CPAN Ratings
+        http://cpanratings.perl.org/d/Class-ReluctantORM-0.5
+
+    Search CPAN
+        http://search.cpan.org/dist/Class-ReluctantORM-0.5/
+
+
+COPYRIGHT AND LICENCE
+
+Copyright (C) 2009 Clinton Wolfe
+
+This program is released under the following license: BSD
+

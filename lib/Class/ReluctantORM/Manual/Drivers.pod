@@ -1,0 +1,24 @@
+# -*- pod -*-
+
+=head1 NAME
+
+Class::ReluctantORM::Manual::Drivers - Database Independence
+
+=head1 OVERVIEW
+
+Drivers in Class::ReluctantORM encapsulate all RDBMS-specific behavior.  They provide SQL rendering and execution services.  They are also responsible for determining how suitable they are for a given RDBMS and performing schema introspection, such as reading column names from the database.
+
+=head1 DRIVER SELECTION
+
+Driver selection happens at compile-time, as your model classes are loaded.  When YourClass->build_class
+
+=head1 SCHEMA INTROSPECTION
+
+=head1 RENDERING SQL
+
+=head1 EXECUTION AND RETREIVAL
+
+=head1 PARSING
+
+
+=cut

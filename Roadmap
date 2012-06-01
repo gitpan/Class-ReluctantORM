@@ -1,0 +1,17 @@
+What's Next for CRO?
+
+Short-Term
+ * the test-database setup thing makes me want to stab my past self
+ * MySQL support.  Do people still use that?
+ * sqlite support that isn't just a smelly pile of brokenness
+ * Probably some way of splitting queries that have multiple has-many relations prefetched to avoid combinatorial explosions in the number of rows returned.  We handle it "correctly", but slowly.
+ * A less facepalmy SchemaCache system; like imagine if you could generate a schema file and modify it, in perl.  I wonder if anyone has done that.
+ * A global option to turn off reluctance in production, or at least downgrade "throwing an exception" to "emitting a warning to the log"
+ * Memory Leak hunt continues
+
+Long-Term
+ * why does this exist
+ * couldn't it just be a wrapper around DBIx::Class, or some kind of plugin to it
+ * might be fun to do this in Ruby
+   * what am I thinking writing an ORM was a horrible nightmare, everyone was right
+   * I should go to law school

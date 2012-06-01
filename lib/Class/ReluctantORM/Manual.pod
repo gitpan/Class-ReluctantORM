@@ -1,0 +1,80 @@
+# -*- pod -*-
+
+=head1 NAME
+
+Class::ReluctantORM::Manual - The Class::ReluctantORM Manual Index
+
+=head1 OVERVIEW
+
+Class::ReluctantORM is an Object-Relational Mapper (ORM), which means it 
+gives you an object-oriented view into your database.  It generates
+classes for you based on the tables of your database,
+creates accessor/mutator methods based on the columns, and even links
+together tables based on foreign key relationships.  Behind the scenes, 
+it generates the SQL necessary to do these tasks.  In certain situations,
+it can also take SQL statements and turn them into objects.
+
+=head1 MANUAL SECTIONS
+
+The Class::ReluctantORM Manual is divided into the following sections.  It's recommended that
+you start with either the Tutorial or the Basics, and then proceed in order.
+
+=head2 L<Tutorial|Class::ReluctantORM::Manual::Tutorial>
+
+The L<Tutorial|Class::ReluctantORM::Manual::Tutorial> builds up a
+working example of a Class::ReluctantORM model and shows some of the basics.  It's a 
+hands-on approach.
+
+=head2 L<Basics|Class::ReluctantORM::Manual::Basics>
+
+The L<Basics Section|Class::ReluctantORM::Manual::Basics> looks at the
+basics of a Class::ReluctantORM class - create, retrieve, update, and delete (CRUD) methods, 
+accessor/mutator methods, and informational methods.
+
+=head2 L<Relationships|Class::ReluctantORM::Manual::Relationships>
+
+The L<Relationships Section|Class::ReluctantORM::Manual::Relationships> looks at the 
+interactions between database tables, and how Class::ReluctantORM makes it easy to access and 
+manipulate related objects.
+
+=head2 L<Prefetching|Class::ReluctantORM::Manual::Prefetching>
+
+The L<Prefetching Section|Class::ReluctantORM::Manual::Prefetching> examines one of 
+the unique features of Class::ReluctantORM - its preference for pre-fetching results, using fetch_deep()
+and search_deep().
+
+=head2 L<SQL Support|Class::ReluctantORM::Manual::SQL>
+
+In L<SQL Support|Class::ReluctantORM::Manual::SQL>, we examine Class::ReluctantORM's support for raw SQL.  If Class::ReluctantORM can't generate a query you need, you can bypass it and use your own SQL.  We'll also look at Class::ReluctantORM's own internal abstract SQL system.
+
+=head2 L<Drivers|Class::ReluctantORM::Manual::Drivers>
+
+Class::ReluctantORM achieves independence from the backend database system by using a system of drivers, each tuned to the dialect of the system it targets.  In L<Drivers|Class::ReluctantORM::Manual::Drivers>, we examine how this works, the drivers that are available, and what you need to do to provide a database connection.
+
+=head2 L<Monitors|Class::ReluctantORM::Manual::Monitors>
+
+The L<Monitors Section|Class::ReluctantORM::Manual::Monitors> provides an overview of the Monitors that are available.  Monitors are probes that examine the query generation and execution process.  They can provide diagnostic, performance, and auditing information.
+
+=head1 AUTHOR
+
+Clinton Wolfe, with feedback from:
+
+=over
+
+=item Graham Knop
+
+=item Dave Hubbard
+
+=item Brian Dunavant
+
+=item Ciprian Tutu
+
+=item Chris Schammel
+
+=item Paul Jones
+
+=item Greg Chiasson
+
+=back
+
+=cut

@@ -1,0 +1,117 @@
++ Adapt OmniTI::DB into Class::ReluctantORM::DBH
++ Adapt OmniTI::Exception into CRO::Exception
++ Add query count testing to 08-static.t (see 11-has_one)
++ Implement limit in deep queries and get {07,11,12,13}*.t working
++ Implement aggregate functions and get 09-aggregate working
++ implement lazy columns
+  + as relationship
+  + add sugar to build_class:
+     lazy_fields => [qw()]
+     non_lazy_fields => [qw()], 
+  + flesh out 10-lazy.t
+  + knock out HL-related TODOs
++ some TODOs in 11-has_one
++ registry support
++ 13-has_many_many is totally broken
++ finish cleanup of HasManyMany.pm (including add(), which breaks 14-fetch_deep_legacy.t)
++ flesh out/clean up 15-fetch_deep.t
++ 16-filters is failing (looks like filter is affecting raw value)
++ audit support
++ advanced trigger support
++ 23-where.t fails a bunch of tests due to case sensitivity
++ additional monitors
+  + Join count
+  + Column count
+  + Timer
+  + Data size
+  + Row Count
+  + monitor tests
+    + logging tests
+    + make Timer tests stable
+  + warn threshold support
++ Create SubQuery class as wrapper around SELECT statement
++ Create OutputColumn class? Need to be able to have an output column be an aliased expression, not just a column.
+~ Add util sub to find last non-CRO stack frame
+  - Fix Exception to croak outside of CRO
++ Create Origins support
+  + record non-CRO frame at SQL object creation time
+  + record non-CRO frame at object creation time
+  + be able to disable it at a global level
++ Make new Exception group, SQL
+  + move some from under Data
++ Implement Type V SQL integration (given SQL object, execute and build CRO objects from it)
+~ Utils tests
++ Purge all UNIVERAL::isa calls
+~ Back-compat with TB
+~ DOC TODOs
+  ~ Manual
+    + Tutorial
+    + Basic
+    + Relationships
+    + Prefetching
+    + SQL
+    - Drivers
+    + Monitors
+    ~ Porting from TableBacked
+
+~ In Class::ReluctantORM::DBH, add support for auto-boosting DBI handles to CRO::DBH
+  - test script
+- Problems with multiple uncommitted changes to HasManyMany
+   collections if they come from different children - TODOs in 13-has_many_many.t
+- Additional tests in 44-fetch-deep-overlay
+
+
+Mid-term:
+- commit/rollback
+  - Driver->is_in_transaction()
+  - Driver->supports_transactions()
+  - Driver->begin_transaction()
+  - Driver->commit_transaction()
+  - Driver->rollback_transaction()
++ prepare/execute/finish
+  + Driver->render
+  + Driver->prepare
+  + SQL->is_prepared
+  + SQL->_execution_driver
+  + SQL->execute(@binds)
+  + SQL->finish()
+  + SQL->_sth
+  + SQL->_sql_string()
+  + test script (#36)
+
+- Support for raw SQL clauses in SQL
+  + add raw_where, 
+  - add raw_from, raw_order_by to SQL
+    - fix: order_by appears to always be expected to be defined
+  - add raw_statement to SQL
+  + modify SQL::pretty_print to dump raw clauses
+  - consequences for annotate, reconcile, is_inflatable?
+  - document alias replacement at Class::ReluctantORM::Driver - Raw SQL Mangling
+  + support for global default no parsing option
+  + modify fetch_deep to recognize/handle parse_where flag
+  - support for per-statement no-mangle option
+  + support for params in where clause?
+  
+
+
++ FOM support
+- Get primary key list from DB introspection
+  + implemented as find_primary_key_columns in SQLite, PostgreSQL
+  - use it in build_class
+- static analysis
+- test coverage
+~ refresh support - for relations anway, see fetch_deep_overlay
+- has_many for static classes
+~ full Parser support
+- EXPLAIN Monitor
+- Implement Type IV SQL integration (given SQL string, parse, execute, and build CRO objects)
+
+Long-term:
+- SQL Abstract Tree support
+- memcached registry implementation
+- MySQL support
+- Oracle 8 Support
+- Oracle 9+ Support
+~ sqlite support
+- DB type system
+    lazy_by_type => [qw(text blob)] (low priority)

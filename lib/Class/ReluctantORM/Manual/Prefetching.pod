@@ -1,0 +1,273 @@
+# -*- pod -*-
+
+=head1 NAME
+
+Class::ReluctantORM::Manual::Prefetching - Fetching in Advance
+
+=head1 OVERVIEW
+
+Prefetching is the act of fetching related objects when you do a query.  It is the one of the most important steps you can take to ensure your ORM-based application is performant and scalable (it is often neccesary, but never sufficient, for this). 
+
+We'll first look at why prefetching is important, and why Class::ReluctantORM is "reluctant".
+
+Next we'll walk through increasingly complex examples of prefetching.
+
+CRO also provides several features to help you develop code using prefetching.  The most important of these is Origin Tracking.
+
+CRO also supports a Registry feature, which keeps a unique instance of each object in memory.  This can affect prefetching.
+
+Finally we'll cover additional options you can provide to customize the prefetch operation.
+
+
+
+=head1 WHY PREFETCH?
+
+A serious problem with many ORM implementations is the hidden cost 
+of making calls like this:
+
+  my $m = $pirate->ship->home_port->mayor();
+
+Assuming each of those subordinate objects are in their own table, that could be 3 round trips to the database, because the ship attribute isn't populated until it is needed (though the ship_id attribute presumably is).  This technique is called implicit lazy loading, and while it is not inherently bad (it allows you to efficiently list pirates without loading ship information, for example), it can lead to serious performance problems.
+
+Scalability doctrine tells us that, in general, it's not the size of the queries that kills a web app, it's the number of separate round trips.  One solution might be to always pre-fetch everything related to an object.  That's inefficient, and besides, it only pushes back the problem one step: even if you prefetch ships (and parrots?) whenever you fetch pirates, you still didn't prefetch the home_port, nor the mayor.  If you did, you'd find yourself fetching the entire database on every query.
+
+In practice, implicit lazy loading is dangerous not because of additional trips per se, but rather, it is the fact that those extra trips are hidden behind innocuous accessor calls.  For example, $pirate->ship may be a DB fetch in some cases, or it may be a simple in-memory access.  There's nothing to indicate to a reader of the code that a database hit is occuring.
+
+Class::ReluctantORM tries to help in several ways, while never permitting implicit lazy loading:
+
+=over
+
+=item Accessors never fetch (no implicit fetching)
+
+=item Fetchers always start with either 'fetch' or 'search' (fetching must be explicit)
+
+=item Attempts to access an unfetched object result in an exception
+
+=back
+
+It is this last feature that has turned out to be CRO's largest advantage over other ORMs.  A developer who accidentally accesses an unfetched object will immediately be aware of it on the first run of the code, when they are developing, rather than much later when pervasive implicit lazy loading has caused performance problems.
+
+=head2 Simple Fetching
+
+  my $pirate = Pirate->fetch($pirate_id);
+  $pirate->ship_id();  # Always available
+  $pirate->ship();     # Kaboom! FetchRequired exception
+
+If you only want the subordinate object's ID, you've already got it.  But if you want the actual subordinate object, you'll need to fetch it.
+
+Note that fetch() will throw an exception if no rows were returned.  If you'd prefer undef, use search() instead.
+
+=head2 Afterthought Fetching (Explicit Lazy Loading)
+
+  my $pirate = Pirate->fetch($pirate_id);
+  my $ship = $pirate->fetch_ship();
+
+If you _want_ to hit the database again,
+calling fetch_FIELD will do the trick without throwing an exception.
+Afterward, the result is cached, so
+
+  $ship = $pirate->ship(); # Already fetched, no problem
+
+works.
+
+Note that the ship() method is ALWAYS simply an accessor - it will never do a fetch for you.  If it hasn't been fetched yet, it will throw an exception.
+
+=head2 Shallow Prefetching
+
+  my $pirate = Pirate->fetch_with_ship($pirate_id);
+  my $ship = $pirate->ship();  # Already fetched!
+
+If you know in advance you'll need the subordinate data, 
+you can pre-fetch it.  A LEFT OUTER JOIN is preformed, and 
+only one query is executed.  Depending on your database table sizes, this may be more or less efficient than multiple queries, but the common case is that one query is better than two.
+
+You can combine this with other forms of fetch and search, to 
+return multiple pre-populated objects.
+
+  my @pirates = Pirate->fetch_by_leg_count_with_ship(2); # Bipeds only
+  my @pirates = Pirate->search_with_ship(where => "leg_count > 1", order => "name");
+
+  my $ship = Ship->fetch_by_name_with_pirates('Hispanola');  # HasMany
+  my @treasure = Pirate->fetch_by_name_with_booties('Black Beard'); # HasManyMany
+  my $string = Pirate->fetch_by_name_with_diary('Black Beard'); # HasLazy
+
+
+=head2 Broad and Deep Prefetching
+
+Shallow prefetching is great, but it only lets you grab one subordinate
+object.  What if you wanted pirates with both their Ship objects and their
+Parrot objects? "fetch_with_parrot_with_ship" is ambiguous.  Instead, we have:
+
+  $pirate = Pirate->fetch_deep(
+                               name => 'Red Beard',
+                               with => { parrot => {}, ship => {}},
+                              );
+
+That allows a 'broad' prefetch.  How does one do 'deep' prefetches?
+
+  $pirate = Pirate->fetch_deep(
+                               name => 'Red Beard',
+                               with => {
+                                        ship => {
+                                                 home_port => {
+                                                               mayor => {},
+                                                              },
+                                                },
+                                       },
+                              );
+
+Combined broad and deep prefetches are also supported:
+
+  $pirate = Pirate->fetch_deep(
+                               name => 'Red Beard',
+                               with => {
+                                        parrot => {},
+                                        hideouts => {}, # Many to Many
+                                        ship => {
+                                                 home_port => {
+                                                               mayor => {},
+                                                              },
+                                                },
+                                       },
+                              );
+
+Like fetch(), fetch_deep() will throw an exception if no rows were returned.  If you'd prefer undef or an empty list, use search_deep() instead.
+
+=head2 Deep Prefetching with Arbitrary Search (SQL string)
+
+Instead of providing a single attribute to search on (as above), 
+you can instead provide a where clause of your own:
+
+  # Search for biped or better pirates
+  $pirate = Pirate->fetch_deep(
+                               where => "pirates.leg_count > ?",
+                               execargs => [2],
+                               with => {
+                                        parrot => {},
+                                        hideouts => {}, # Many to Many
+                                        ship => {
+                                                 home_port => {
+                                                               mayor => {},
+                                                              },
+                                                },
+                                       },
+                              );
+
+First, notice that you can use bind placeholders.  If your where clause 
+contains the character '?', the execargs param is required.
+
+Second, notice that the table is named explicitly.  You might be able to get 
+away without explicit table names if the column name is unique across 
+all the JOINs, but it's not recommended.  (Note that if you jave self-referential joins, a macro facility is provided to uniquely reference tables).  During query construction, the table name 
+will be replaced with the table alias that the query generator is using.
+
+Of course, you can also do this:
+
+  $pirate = Pirate->fetch_deep(
+                               where => "ships.name =?",
+                               execargs => ['Jenny XVII'],
+                               with => {
+                                        parrot => {},
+                                        hideouts => {}, # Many to Many
+                                        ship => {
+                                                 home_port => {
+                                                               mayor => {},
+                                                              },
+                                                },
+                                       },
+                              );
+
+Notice that the where clause is now refering to a table in the with list.  
+This allows very flexible queries.
+
+=head3 To Parse or not To Parse?
+
+CRO's long-term goal is to be able to parse the SQL string (using the Driver, so it's dialect-aware), and use that information to enable some neat tricks like inflating objects directly from a SQL string.  That goal is an ambitious one, and the parser (based on SQL::Parser 1.20+) is very limited.  In the meantime, you can control CRO's behavior by either globally disabling parsing or disabling parsing on a per-query basis.
+
+  # SQL::Parser 1.2x doesn't support subqueries, so we can't parse this.
+  # Without the parse_where => 0, you'll get a ParseError exception.
+  $pirate = Pirate->fetch_deep(
+                               where => "ship_id IN (SELECT 1)",
+                               parse_where => 0,
+                               ...
+                              );
+  
+  # Give up on Where parsing entirely
+  Class::ReluctantORM->set_global_option('parse_where', 0);
+
+=head2 Deep Prefetching with Arbitrary Search (SQL Objects)
+
+Class::ReluctantORM also permits you to express your query as a set of objects.
+
+Instead of passing a string for the 'where' option, you pass in a Class::ReluctantORM::SQL::Where object.  You can use Class::ReluctantORM::SQL::Expression::Param object to represent parameters.
+
+And yes, this CAN do subqueries.
+
+For more details, see L<Class::ReluctantORM::Manual::SQL>.
+
+=head2 Origin Tracking Support
+
+As you develop code with CRO, you will repeatedly encounter the Class::ReluctantORM::Exception::Data::FetchRequired exception.  FetchRequired is thrown whenever you access a subordinate object without fetching it in advance.
+
+You typically have three choices at this point:
+
+=over
+
+=item Don't use the subordinate object
+
+Perhaps you could just use its keys, which you probably have.
+
+=item Perform an afterthought fetch
+
+For example, $pirate->fetch_ship().  This costs you an extra trip to the database.
+
+=item Alter the fetch_deep call to include the related object
+
+This is the most common solution, and typically the most efficient.
+
+=back
+
+The first two approaches are easy to implement.  The third, however, requires you to know where (in code) the object was originally fetched.  This is a different location than where the FetchRequired exception was thrown.
+
+The solution is origin tracking.  This feature records parts of the call stack whenever a CRO object is fetched from the database.  If/when a FetchRequired exception is thrown, the 'origin' stack frame is included in the exception, listing the file, package, and line number where the original fetch occurred.
+
+Because Origin Tracking consumes a fair bit of memory, it is disabled by default.  To enable it globally, call:
+
+  Class::ReluctantORM->enable_origin_tracking(1);
+
+You may also enable it on a per-class basis:
+
+  Pirate->enable_origin_tracking(1);
+
+For details about the OriginTracking facility, see L<Class::ReluctantORM::OriginSupport>.
+
+=head1 MORE OPTIONS TO FETCH_DEEP
+
+Aside from the previously mentioned with, where, and execargs options, fetch_deep/search_deep supports the following additional options:
+
+=over
+
+=item order_by
+
+May be a string or a L<Class::ReluctantORM::SQL::OrderBy> object.  Sets the sort order on the top-level objects returned.  This is processed in SQL, not in Perl.
+
+=item limit
+
+Non-negative integer.  Maximum number of top-level objects to return (more rows than this may be fetched due to joins).  If you provide this, CRO currently adds the restriction that your where clause can only reference the base table.  This is implemented in SQL, not in Perl.  If limit is provided, order_by is required (otherwise the results would be random).
+
+=item offset
+
+Non-negative integer.  Number of top-level objects to skip.  If you provide this, you must provide both limit and offset.
+
+=back
+
+
+=cut
+
+# TODO docs - additional options for with
+
+=head1 AUTHOR
+
+Clinton Wolfe clwolfe@cpan.org March 2010
+
+=cut

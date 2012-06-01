@@ -1,0 +1,116 @@
+# -*- pod -*-
+
+=head1 NAME
+
+Class::ReluctantORM::Manual::Monitors - Inspecting SQL Activity
+
+=head1 OVERVIEW
+
+One of the most frustrating tasks when working with an ORM in a production environment is tracing and optimizing the SQL that is generated.  CRO eases this pain somewhat by providing monitors - objects that you can configure to watch for and report on the status of SQL generation.  You can even abort a query if it exceeds certain parameters.  CRO comes with a useful basic toolkit of 8 Monitors, to assist in tracing and optimizing queries.  It's also easy to create new monitors of your own design, which can execute arbitrary Perl.
+
+=head1 INSTALLING MONITORS
+
+We'll first work with Class::ReluctantORM::Monitor::Dump, which simply dumps out various information to STDERR as queries execute.
+
+  use Class::ReluctantORM::Monitor::Dump;
+
+  # The 'all' flag says to dump everything, all the time
+  my $mon = Class::ReluctantORM::Monitor::Dump->new(all => 1);
+
+  # To monitor just queries on Ship objects:
+  Ship->
+
+Dump can also send its output to a log file of your choice, and you can also tone down the avalanche of output.  See L<Class::ReluctantORM::Monitor::Dump>.
+
+Now run some queries.  You'll see output like this:
+  
+  # In code
+  $ship->insert();
+
+  # On STDERR, gobs of info
+  
+
+=head1 MONITOR EVENTS
+
+As a query makes its journey from SQL object to rendered SQL string, through execution, several events occur which a Monitor may choose to respond to.  You can pass these as flags under the 'when' option to the Monitor's new().
+
+=over
+
+=item render_begin
+
+Notifies the monitoring system that the driver has begun work to render the given SQL object.
+
+=item render_transform
+
+Notifies the monitoring system that the driver has finished transforming the SQL object.
+
+=item render_finish
+
+Notifies the monitoring system that the driver has finished rendering the SQL object.
+
+=item execute_begin
+
+Notifies the monitoring system that the driver is about to perform a DBI execute.
+
+=item execute_finish
+
+Notifies the monitoring system that the driver has returned from performing a DBI execute.
+
+=item fetch_row
+
+Notifies the monitoring system that the driver has returned from performing a DBI fetchrow.
+
+=item finish
+
+Notifies the monitoring system that the driver has finished the query (called $sth->finish).
+
+=back
+
+=head1 MONITORS INCLUDED WITH CRO
+
+=over
+
+=item Dump
+
+Dumps the query structures to the log.
+
+=item QueryCounter
+
+Counts the number of statements executed.
+
+=item ColumnCounter
+
+Counts the number of columns returned by a query.
+
+=item JoinCounter
+
+Counts the number of JOINs in the query.
+
+=item QuerySize
+
+Monitors the total size, in bytes, of the data returned by a query.
+
+=item RowCounter
+
+Monitors the number of rows returned by the query.
+
+=item RowSize
+
+Monitors the size, in bytes, of each individual row.
+
+=item Timer
+
+Tracks execution time of each query.
+
+=back
+
+=head1 CREATING YOUR OWN MONITORS
+
+To create a Monitor, simply inherit from Class::ReluctantORM.  Then implement any of the notify_* methods you see fit.
+
+=head1 AUTHOR
+
+Clinton Wolfe clwolfe@cpan.org March 2010
+
+
+=cut

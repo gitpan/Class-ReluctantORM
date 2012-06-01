@@ -1,0 +1,243 @@
+=head1 NAME
+
+Class::ReluctantORM::Manual::SQL - Using SQL in ReluctantORM
+
+=head1 OVERVIEW
+
+Any system that provides an interface layer to a database must provide some support for Structed Query Language (SQL), the industry standard data definition and manipulation language.  Class::ReluctantORM provides robust support along a continuum from pure-object (no apprant SQL) operations, to pure-SQL prepare/execute/fetch cycles.
+
+Starting at the raw SQL end, we have:
+
+=over
+
+=item 1
+
+Ask the ORM-managed object or class for a database handle, and execute statements on it. Results are in raw values, not part of the object model.
+
+=item 2
+
+As above, but wrap this into a method call on an ORM object or class, thus integrating SQL into the object model. This is handy for aggregate functions.
+
+=item 3
+
+Future releases aim to provide the ability to override specific ORM-generated queries with your own SQL.
+
+=item 4
+
+Ask Class::ReluctantORM to intepret the SQL into its own representation, and execute. If the translation was successful, return values will be ORM-based objects. This is currently under development.
+
+=item 5
+
+Write a query directly using Class::ReluctantORM’s abstract SQL engine. You’re no longer writing SQL directly, but performing method calls on From and Where objects, for example. CRO provides tools to determine whether the statement can return ORM objects.
+
+=item 6
+
+Use ORM methods and pass SQL fragments as arguments (e.g., a WHERE clause for a search() method).
+
+=back
+
+We'll start with the simplest cases first.
+
+
+=head1 USING RAW SQL IN WHERE CLAUSES
+
+The most common place raw SQL is used is in the 'where' argument to search() :
+
+  my @pirates = Pirate->search( where => 'leg_count < 2' );
+  my @pirates = Pirate->search_deep(
+       where => ' leg_count < ? AND ships.name = ? ',
+       execargs => [ 2, 'Revenge' ],
+       with => { ship => {} },
+     );
+
+In these cases, Class::ReluctantORM will parse the SQL string that you provide, using SQL::Statement.  This mechanism is expected to change in the next major release, in which Driver-base parsing is planned.
+
+SQL::Statement-based parsing currently has the following limitations:
+
+=over
+
+=item Namespace ("schema") support is bolted-on and brittle
+
+=item No support for subqueries
+
+=back
+
+=head2 Table Aliasing
+
+Class::ReluctantORM need to retain control of the table aliasing machanism in
+order to construct JOINs and output column lists.  This makes it difficult
+to use aliases in raw sql, because the SQL author cannot have advance knowledge of which aliases will be assigned to each table.
+
+=head3 No Aliasing
+
+The first option is to use no aliasing at all.  ReluctantORM will disambiguate column references in the WHERE clause by looking for a table (or subquery) in the FROM clause that has that column.  If exactly one table matches, the column reference is assigned the proper table alias.  If zero or more than one table matches, an exeption is thrown.
+
+=head3 Full Table Name
+
+To handle cases in which differently named tables have identically named columns, you may use the full table name to refer to the column.  You may optionally use the schema name as well:
+
+  -- Assuming a FROM clause that references table1 and table2, both 
+  -- of which have a 'somecol' column
+  somecol = 1 -- ambiguous - will fail
+  table1.somecol = 1 -- OK
+  schema1.table1.somecol = 1 -- OK
+
+=head3 Alias Macros
+
+To support cases in which a full table name is not unique (usually due to self-referential JOINs), it is possible to use an alias macro.
+
+  -- Table employees has a 'supervisor_id' column that
+  -- refers to the employee_id column of the employees table
+  -- Assume the FROM clause refers to both tables
+  -- derived from a fetch_deep like
+  -- Employee->fetch_deep(..., with => {supervisor => {}})
+  employee_id = 1 -- Ambiguous - 2 tables have a employee_id column
+  employees.employee_id = 1 -- Still ambiguous - two tables named employee in FROM
+  MACRO__parent__supervisor__.employee_id = 1 -- OK
+  MACRO__child__supervisor__.employee_id = 1 -- OK
+
+The following alias macros are currently available:
+
+=over
+
+=item MACRO__base__.column
+
+The base table of the entire query.  This is the table that corresponds to Employee in Employee->fetch_deep(...)
+
+=item MACRO__parent__RELATION_NAME__.column
+
+The parent (upper, left) table in a relationship.
+
+=item MACRO__child__RELATION_NAME__.column
+
+The child (lower, right) table in a relationship.
+
+=item MACRO__join__RELATION_NAME__.column
+
+If the relationship has an intermediate join, this refers to the join table.
+
+=back
+
+Alias macros are not foolproof.  If you construct a fetch_deep query that refers to the same relation more than once (or different relations with the same name), the macro may not be unambiguously resolvable.  In this case, an exception will be thrown.  You should likely consider writing the entire query in raw SQL, allowing you to have full control over aliasing.
+
+
+=head1 USING THE SQL OBJECT MODEL
+
+Internally, Class::ReluctantORM models all SQL statements using a dedicated SQL object model.  In other words, we have objects to represent table references, column references, expressions, FROM clauses, etc.  These objects are covered in detail in L<Class::ReluctantORM::SQL>.
+
+CRO uses these objects to preserve the semantics of a statement (what is meant) independently of the syntax of a particular SQL dialect.  So, when you perform CRUD actions like insert(), a SQL object is created whose operation is INSERT, and it is populated with the proper information (what columns to set, which table to affect, etc).  This SQL object is then passed to the Driver to be translated into RDBMS-specific SQL, executed, and the results returned.
+
+Additionally, CRO uses the SQL object model to store annotations about the query - for example, storing Relationship data about a JOIN.
+
+The SQL support currently only extends to DML (insert, update, select, delete).  DDL (create, drop, alter, etc) and other vendor-specific operations (GRANT, VACUUM, etc) are not supported.
+
+You have full access to this powerful mechanism to run your own queries.  This is very useful for cases in which you need to perform custom SQL, but you do not wish to be tied to any particular Driver.
+
+=head2 Constructing a SQL Object Query
+
+  # Exports a bunch of class aliases, such as:
+  #  Table => Class::ReluctantORM::SQL::Table
+  #  Where => Class::ReluctantORM::SQL::Where
+  #   etc
+  use Class::ReluctantORM::SQL::Aliases; 
+
+  my $table = Table->new( schema => 'highseas', table => 'pirates' );
+  my $crit = Criterion->new(
+                            '>',
+                            Column->new(table => $table, column => 'leg_count'),
+                            Param->new(),
+                           );
+  my $select = SQL->new('SELECT');
+  $select->from(From->new($table));
+  $select->where(Where->new($crit));
+  $select->add_output(Column->new(table => $table, column => 'name'));
+
+As you can see, the SQL object approach is much more verbose than the SQL-as-string approach.  On the other hand, it is easy to construct complex queries, or inspect ones you have obtained.  For example, each expression in the SQL statement knows whether it is a Literal, a FunctionCall, a Column, a Param, or even a SubQuery.  Each of these types can perform futher introspection.
+
+=head2 Executing a SQL Object Query
+
+As mentioned above, Drivers are responsible for execution of queries.  So, we need a Driver.  Each CRO class has a Driver (derived from the db_class or dbh options to build_class).  So, choose a class that is backed by a table on the same database your query should be ran against.  It need not reference the same table.
+
+  my $driver = Ship->driver();
+
+Drivers may also be obtained from CRO objects - the driver() method is always executed as a class method.
+
+Next, bind your parameters.
+
+  $sql->bind_params(2);
+
+Finally, simply call run_sql().  The query will be rendered to string SQL, executed, and the results stored fo ryour retrieval.
+
+  $driver->run_sql($sql);
+
+For details about the rendering process, including how to gain insight into each step, see L<Class::ReluctantORM::Manual::Monitor>.
+
+=head2 Obtaining Results From SQL Objects
+
+=head3 Single-Row Results
+
+To get single-row results, simply run the SQL, then query the Output Columns:
+
+  my $sql = ...;
+  $driver->run_sql($sql);
+  foreach my $oc ($sql->output_columns()) {
+     print $oc->alias . ' => ' . $oc->output_value() . "\n";
+  }
+
+=head3 Multi-Row Results
+
+To obtain multiple row results, construct a coderef to listen for rows.  
+It will get called once per row with the SQL object as its sole argument.
+
+  my $counter = 0;
+  my $listener = sub {
+    my $sql = shift;
+    $counter++;
+    print "Row $counter:\n";
+    foreach my $oc ($sql->output_columns()) {
+       print $oc->alias . ' => ' . $oc->output_value() . "\n";
+    } 
+  };
+
+  my $sql = ...;
+  $sql->add_fetchrow_listener($listener);
+  $driver->run_sql($sql); # Your listener gets called repeatedly
+
+=head1 OBTAINING CRO MODEL OBJECTS FROM A SQL OBJECT QUERY
+
+The previous section discussed how to construct and execute a SQL query using SQL objects.  However, the results obtained were simple scalar values - strings and numbers.  Class::ReluctantORM also provides support for returning CRO model objects (like Ships and Pirates) from some SQL object queries.
+
+This functionality is called 'inflation', after the idea of inflating a balloon.  Inflation is by no means gaurenteed to work, but CRO does provide tools to help you evaluate and improve the inflatability of your queries.
+
+  # $sql as above
+  my ($result, $problem) = $sql->is_inflatable();
+  if ($result) {
+     my @pirates = $sql->inflate();
+  } else {
+     print $problem . "\n";
+  }
+
+See L<Class::ReluctantORM::SQL::is_inflatable()> and L<Class::ReluctantORM::SQL::make_inflatable()>.
+
+=head1 OBTAINING CRO MODEL OBJECTS FROM A SQL STRING
+
+Yeah, that would be awesome.  CRO doesn't currently support this, because it lacks a general SQL parser.  Progress toward this goal is planned for the 0.7 release.
+
+=head1 USING RAW SQL FOR ENTIRE QUERIES
+
+If you just need to run a straight SQL string and interact with it DBI-style, you can do that, too:
+
+  my $dbh = Ship->driver->dbh();
+  my $sth = $dbh->prepare("SELECT obscure_vendor_specific_function();");
+  $sth->execute();
+  while (my $row = $sth->fetchrow_hashref()) {
+     ...
+  }
+
+
+=head1 AUTHOR
+
+Clinton Wolfe, clwolfe@cpan.org, January-March 2010
+
+=cut
+

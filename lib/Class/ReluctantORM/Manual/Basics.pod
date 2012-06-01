@@ -1,0 +1,349 @@
+# -*- pod -*-
+
+=head1 NAME
+
+Class::ReluctantORM::Manual::Basics - CRUD in CRO
+
+=head1 OVERVIEW
+
+This section of the Class::ReluctantORM manual describes the basics of Class::ReluctantORM.  We'll discuss how to define classes, how CRO expects to talk to the database, and how to perform classic ORM operations - create, retrieve, update, delete (CRUD).
+
+This document is more descriptive than instructional - see L<Tutorial|Class::ReluctantORM::Tutorial> if you'd like a more hands-on approach.
+
+=head1 CONNECTING TO THE DATABASE
+
+CRO expects to connect to the database at compile time.  It uses the database connection to learn column names and configure classes.
+
+You may use either a plain DBI 'dbh' handle, or use a custom database connection manager class.  See L<Class::ReluctantORM::DBH> for more details on this option.
+
+CRO does not care if the connections are shared (they probably should be, if you are running under a webserver).
+
+=head1 USING A MODEL FILE
+
+Generally, at first you will want to keep all of your CRO classes in one file, a Model file.  This makes it very easy to see relationships and share configuration details.  As you add custom methods and other business logic, you'll likely want to split each class off into its own file.
+
+Here's a typical model file:
+
+  package HighSeas::Model;
+  use strict;
+  use warnings;
+
+  my $dbh = ... # Up to you
+
+  our %TABLE_DEFAULTS = (
+                         schema => 'caribbean',
+                         dbh => $dbh,
+                        );
+
+  package HighSeas::Ship;
+  use base 'Class::ReluctantORM';
+  __PACKAGE__->build_class(
+                           %HighSeas::Model::TABLE_DEFAULTS,
+                           table => 'ships',
+                          );
+
+  package HighSeas::Pirate;
+  use base 'Class::ReluctantORM';
+  __PACKAGE__->build_class(
+                           %HighSeas::Model::TABLE_DEFAULTS,
+                           table => 'pirates',
+                          );
+  1;
+
+As you can see, we set up the defaults for all classes in one place, and then re-use them.
+
+Next, each class performs three steps:
+
+=over
+
+=item o
+
+Declares its name using 'package'
+
+=item o
+
+Declares Class::ReluctantORM as a superclass.  You may also use L<Class::ReluctantORM::Static> or L<Class::ReluctantORM::Audited>, which provide specialized features.
+
+=item o
+
+Calls build_class() (provided by Class::ReluctantORM) to configure the class
+
+=back
+
+build_class supports a wide variety of options.  
+
+=over
+
+=item table 
+
+Names the table in which the data is stored.
+
+=item schema 
+
+Names the schema (namespace) in which the table resides. Not all RDBMS's support this.
+
+=item primary_key
+
+Lists the primary key(s) of the table.  Some RDBMS's can detect this automatically; see L<Class::ReluctantORM::Driver/can_read_primary_keys>.
+
+=item fields
+
+Allows you to map method names to column names.
+
+=item ro_fields
+
+Allows you mark fields as read-only (trying to set a value using the generated method will be an exception).
+
+=item dbh
+
+A DBI handle, used to communicate with the database.
+
+=item db_class
+
+Instead of dbh, you can provide a database interface class name here.  See L<Class::ReluctantORM::DBH>.
+
+=back
+
+There are many other options that are used in more unusual circumstances.  See L<Class::ReluctantORM/build_class> for further details on these and other options.
+
+
+
+
+
+
+=head1 CREATING OBJECTS AND RECORDS
+
+In an ORM, there is a distinction between making an object in memory and making an object in the database.  CRO has two separate methods.
+
+=head2 new( )
+
+  my $ship = Ship->new();
+
+Simply calling new() will create a new object in memory only.  Without parameters, all of its fields will be undef (which becomes NULL upon saving to the database).
+
+  my $ship = Ship->new(
+                       name => "Rowboat",
+                       gun_count => 0,
+                       waterline => 80,
+                      );
+
+Calling new() with a named parameter list will create a new object in memory with the given fields set to the given values.  Note that you should use field names, NOT column names (as they may have been re-mapped using the 'fields' option to build_class).
+
+  my $ship = Ship->new(
+                       ship_id => 2,
+                       name => "Rowboat",
+                      );
+
+You can also set primary keys explicitly.  You are responsible for avoiding key collisions (you'll get an exception on save()).  However, if you use auto-generating keys (serial in PostgreSQL, auto_increment in MySQL, etc) you can just leave it undef and it will be set when you save the object.
+
+
+  my $ship = Ship->new(
+                       name => "Rowboat",
+                       gun_count => 0,
+                       waterline => 80,
+                       pirates => \@mateys,
+                      );
+
+If the class is involved in relationships, you can set related objects directly.  We'll cover this in more detail in L<Class::ReluctantORM::Manual::Relationships>.
+
+=head2 insert( )
+
+So, now that you have an object in memory, you'd like to save it to the database.
+
+   $ship->insert();
+
+insert will perform an INSERT SQL operation.  It will also add a RETURNING clause to the statement and fetch the new primary keys (as well as any other fields listed in the refresh_on_update option to build_class()).
+
+Calling insert() may not work if you haven't satisfied DB constraints:
+
+  eval { $ship->insert(); };
+  if ($@ && $@->isa('Class::ReluctantORM::Exception::SQL::ExecutionError') ) {
+     # splat
+  }
+
+CRO does not know about various constraints that INSERTs must satisfy - including NOT NULL, foreign key constraints, data type conversion problems, UNIQUE constraints, RULE violations...  so if you are in doubt, eval{} your inserts.
+
+
+=head2 create( )
+
+You can also combine a new() and insert() into one call:
+
+  $ship = Ship->create(%fields);
+
+This creates an object in memory, then immediately calls insert() on it.  You can provide exactly the same arguments as to new().  It faces exactly the same potential for DB problems as insert().
+
+=head2 is_inserted( )
+
+You may need to know if a given object has been saved yet.  
+
+  unless ($ship->is_inserted()) {
+      $ship->insert();
+  }
+
+But it's often simpler to call save() (see below under Updating).
+
+
+
+
+=head1 RETRIEVING EXISTING RECORDS
+
+Once you have records in the database, you'll want to be able to get them out again.  Retrieval is provided by two families of methods, fetch() and search().
+
+=head2 fetch( )
+
+  $ship = Ship->fetch(2);
+
+In its most basic form, fetch() takes as its arguments the primary keys of the object you are looking for.  If the class has more than one primary key, provide them in order (Ship->primary_keys() will return them in the same order).
+
+fetch() will always either return exactly one object, or else it will throw a Class::ReluctantORM::Exception::Data::NotFound exception.  Fetch should be used when you KNOW the object is in the database, and if it is missing, you have a bug or data integrity problem.
+
+=head2 search(FIELD => VALUE)
+
+  $ship = Ship->search(name => 'Revenge');
+  @ships = Ship->search(waterline => '54');
+
+This is a simplified version of search(), supporting the common case of searching on exactly one field.  A WHERE clause is built using the '=' SQL operator to match the given field.  See search(where => ...) below for further details.
+
+=head2 search(where => ...)
+
+  @dreadnaughts = Ship->search(where => "gun_count > 60");
+
+search() supports using a SQL WHERE clause (without the word 'WHERE').  In scalar context, the first record obtained will be returned.  In list context, all records will be returned.
+
+Unlike fetch(), search will not throw an exception if no results are returned.  Instead it will returned undef (Scalar context) or an empty list (list context).  Use search() when you are not sure if the record exists, and your application logic expects this.
+
+  @skiffs = Ship->search(
+                         where => "waterline > ? ",
+                         execargs => [ $min_length_of_a_skiff ],
+                         order_by => 'waterline DESC',
+                         limit => 3,
+                        );
+search() supports placeholders, ORDER BY, and LIMIT.  See L<Class::ReluctantORM/search> for more details.
+
+Where clause parsing is provided by L<Class::ReluctantORM::Driver/parse_where>.  If you are trying to use a complex clause and encountering parser problems, you can also skip the parsing step and provide a L<Class::ReluctantORM::SQL::Where> object directly as the value of the 'where' option.
+
+=head2 fetch_by_FIELD(VALUE)
+
+=head2 search_by_FIELD(VALUE)
+
+  my $ship = Ship->fetch_by_name('Revenge');
+
+These two methods are auto-generated for each field in your class.  The fetch() version will throw an exception if no record is found, while the search() version will return undef or an empty list.
+
+=head2 fetch_by_FIELD_with_RELATION(VALUE)
+
+=head2 search_by_FIELD_with_RELATION(VALUE)
+
+These operate as fetch_by_FIELD and search_by_FIELD, but they also pre-fetch the relationship named by RELATION.  See the L<Prefetching Manual|Class::ReluctantORM::Manual::Prefetching>.
+
+=head1 READING FIELD VALUES
+
+Each field in your class has an accessor/mutator generated.
+
+=head2 FIELD( )
+
+  my $count = $ship->gun_count();
+
+It's just that simple.  Each field in your class has an accessor, which will return the value provided when called.
+
+=head2 field_names( )
+
+If you need to enumerate the fields in your class, try this:
+
+  foreach my $field ($ship->field_names()) {
+     print "$field => " . $ship->$field . "\n";
+  }
+
+field_names() lists all "direct" fields on the class - those that map to exactly one database field.  This excludes most relationships, but may include fields that are not loaded by default (see L<Class::ReluctantORM::Relationship::HasLazy>).  To get only those fields that are always loaded, use essential_fields().
+
+You also have access to column_names().
+
+=head1 UPDATING OBJECTS AND RECORDS
+
+=head2 FIELD(VALUE)
+
+To set a value on a field in memory, call the accessor/mutator:
+
+ $ship->gun_count(0); # Turned pacifist
+
+If a field was marked read-only by the ro_fields option to build_class, this will throw an exception (the only time you can set a value for a read-only field is at creation time, in new() or create()).
+
+=head2 is_dirty( )
+
+To find out if an object has changes in memory (that is, it is probably out of sync with the DB), use is_dirty:
+
+  if ($ship->is_dirty()) {
+     # unsaved changes
+  }
+
+You can also find out if a particular field is dirty:
+
+  if ($ship->is_field_dirty('gun_count')) {
+     # changed gun_count value
+  }
+
+And list all dirty fields:
+
+  my @changes = $ship->dirty_fields();
+
+CRO uses these to minimize the number of assignments it makes during an UPDATE.
+
+=head2 update( )
+
+Once you've modified an object, you need to update the database.
+
+  $ship->update();
+
+This creates and executes an UPDATE statement whose assignments are taken from the dirty fields of the object, and whose where clause is generated from the primary keys.  It also includes a RETURNING clause to update any refresh_on_update fields (See build_class()).
+
+You cannot update() an object until it has been inserted into the database.  See save() for a convenient way to do this.
+
+=head2 save( )
+
+  $ship->save()
+
+If the object has not been inserted, performs an insert().
+
+If the object has been inserted and has dirty fields, performs an update().
+
+Otherwise, does nothing.
+
+=head1 DELETING RECORDS FROM THE DATABASE
+
+All of the delete methods depend on the 'deletable' option to build_class being false.  You can also use is_deletable() as a class or instance method.
+
+=head2 delete( )
+
+  $ship->delete();
+
+If you want to delete one record, and you have the object on hand, delete() will do the trick.  It constructs a DELETE statement, using the primary keys as the WHERE clause.
+
+The object must have been inserted for you to delete it.
+
+After deletion, the object remains in memory, but is no longer valid.  The primary keys will be cleared on the object, and its is_inserted() flag will be set to false.
+
+=head2 delete_where(where => ...)
+
+  Ship->delete_where(where => 'gun_count > 34');
+
+Deletes all records from the table that match the given WHERE clause.  No objects need to be fetched to use this.
+
+After calling delete_where, it is possible that some objects may no longer be valid (because their underlying database record was deleted).
+
+=head2 delete_all( )
+
+  Ship->delete_all();
+
+Deletes all records from the underlying table.
+
+
+=head1 NEXT STEPS
+
+Now that you've seen the basics of Class::ReluctantORM, you'll want to learn how to link classes together to match the database relations.  See L<Class::ReluctantORM::Manual::Relationships>.
+
+=head1 AUTHOR
+
+Clinton Wolfe February 2010
+
+=cut
+
